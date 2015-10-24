@@ -1,0 +1,127 @@
+---
+title: 'Practical Machine Learning: Project'
+author: "Stanislaw Szostak"
+date: "October 24, 2015"
+output: html_document
+---
+
+## Overview
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+In this project, data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants is used. The participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The aim of the project is to predict which way the exercise has been done basing on a machine learning algorithm.
+
+
+## Pre-requisites 
+
+The following packages need to be loaded before any machine learning analysis can be applied:
+
+```{r libraries, message=F}
+library(lattice)
+library(ggplot2)
+library(randomForest)
+library(rpart)
+library(caret)
+```
+
+## Getting and Loading Data
+
+The data is included in two files: *pml-training.csv* contains training data and *pml-testing.csv* contains the testing data for the final prediction.
+
+```{r getting and loading, cache=T}
+trainUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+trainData <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""))
+testData <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""))
+```
+
+
+## Data Partitioning and Pre-processing
+
+Once the data loaded, a partitioning mechanism has been employed. The *createDataPartition* function, part of the *caret* package, enabled to divide the initial training data into a training subest and a testing subset with the following dimensions:
+
+```{r partitioning}
+set.seed(43894)
+inTrain <- createDataPartition(y=trainData$classe, p=0.6, list=FALSE)
+
+TrainSet <- trainData[inTrain, ]
+TestSet <- trainData[-inTrain, ]
+dim(TrainSet)
+dim(TestSet)
+```
+
+The final training set now contains 11776 rows, whereas the testing set has 7846 rows.
+
+In the next step, the nearZeroVar function is used in order to remove insignificant columns from the training set. On top of that, only columns that have at least 90% of complete rows (number of NA's lower or equal to 1177) are retained. Finally, the X column is removed, as it provides no informative value to the model, and the timestamp column is transformed to numeric. That last transformation is required in order to provide the predictions based on the final testing dataset, as the training and testing sets contain, after loading, different levels of the timestamp variable. 
+
+```{r pre-processing}
+nsv <- nearZeroVar(TrainSet)
+filteredTrainSet <- TrainSet[,-nsv]
+
+f2 <- filteredTrainSet[, colSums(is.na(filteredTrainSet)) <= 1177]
+f2 <- subset(f2, select = -X)
+
+f2$cvtd_timestamp <- strptime(as.character(f2$cvtd_timestamp),"%d/%m/%Y %H:%M")
+f2$cvtd_timestamp <- as.numeric(f2$cvtd_timestamp)
+```
+
+The same set of adjustments are provided to the testing set.
+
+```{r pre-processing2}
+TestSet <- TestSet[,-nsv]
+TestSet <- TestSet[,colSums(is.na(filteredTrainSet)) <= 1177]
+TestSet <- subset(TestSet, select = -X)
+TestSet$cvtd_timestamp <- strptime(as.character(TestSet$cvtd_timestamp),"%d/%m/%Y %H:%M")
+TestSet$cvtd_timestamp <- as.numeric(TestSet$cvtd_timestamp)
+```
+
+## Building the Predictive Model
+
+The simplest way to build a machine learning model for prediction is to use decision trees with recursive partitioning:
+
+```{r rpart, cache=T}
+rpartFit <- rpart(classe ~ .,data=f2, method = "class") 
+rpartPred <- predict(rpartFit,newdata = TestSet, type="class")
+confusionMatrix(rpartPred,TestSet$classe)
+```
+
+The model fit and metric values seems to be unsatisfactory, so let's use a more advanced technique called random forest to create the predictive model:
+
+```{r rf, cache=T}
+rfFit <- randomForest(classe ~. , data=f2, importance=T)
+rfPred <- predict(rfFit,newdata = TestSet, type="class")
+confusionMatrix(rfPred,TestSet$classe)
+```
+
+The out-of-sample error equals to 1 - accuracy. The accuracy is:
+```{r accuracy}
+acc <- confusionMatrix(rfPred,TestSet$classe)$overall[[1]]
+acc
+```
+Then the out-of-sample error is equal to:
+```{r error}
+OOSError <- 1 - acc
+OOSError
+```
+
+## Predicting On Test Data
+
+The random forest model has been used to predict (after pre-processing) the classe outcome on the test dataset:
+
+```{r predixion}
+testData <- testData[,-nsv]
+testData <- testData[, colSums(is.na(filteredTrainSet)) <= 1177]
+testData <- subset(testData, select = -X)
+testData$cvtd_timestamp <- strptime(as.character(testData$cvtd_timestamp),"%d/%m/%Y %H:%M")
+testData$cvtd_timestamp <- as.numeric(testData$cvtd_timestamp)
+
+
+preDiXion <- predict(rfFit, newdata = testData)
+preDiXion
+```
+
+
+## Conclusions
+
+The latter model presented above provided very satisfactory predictions for the final testing dataset.
